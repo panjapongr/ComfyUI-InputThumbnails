@@ -1,0 +1,11 @@
+[project]
+name = "comfyui-input-thumbnails"
+version = "1.0.0"
+license = { file = "LICENSE.txt" }
+
+[project.urls]
+Repository = "https://github.com/panjapongr/ComfyUI-InputThumbnails"
+
+[tool.comfy]
+PublisherId = "panjapong"
+DisplayName = "ComfyUI Input Thumbnails"
