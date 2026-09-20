@@ -60,3 +60,5 @@ htmlcov/
 /output/
 /temp/
 *.log
+.cache/
+**/.cache/

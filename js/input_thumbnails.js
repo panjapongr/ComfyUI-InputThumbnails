@@ -14,6 +14,16 @@ function fileFromRel(rel) {
   };
 }
 
+function thumbQuery(file) {
+  const params = new URLSearchParams({
+    filename: file.name,
+    subfolder: file.subfolder || "",
+  });
+  if (file.hash) params.set("hash", file.hash);
+  if (file.mtime) params.set("t", String(file.mtime));
+  return params.toString();
+}
+
 function viewQuery(file) {
   return new URLSearchParams({
     filename: file.name,
@@ -41,6 +51,7 @@ function filesInFolder(allRels, folder) {
   const dirs = new Map();
   const files = [];
   for (const rel of allRels) {
+    if (rel.startsWith(".cache/") || rel === ".cache") continue;
     const parsed = fileFromRel(rel);
     if (folder) {
       if (parsed.rel === folder || !parsed.rel.startsWith(prefix)) continue;
@@ -80,8 +91,13 @@ function setImageWidget(node, rel) {
 }
 
 async function blobUrlFor(file) {
-  const q = viewQuery(file);
-  const attempts = [`/view?${q}`, `/api/view?${q}`];
+  const tq = thumbQuery(file);
+  const vq = viewQuery(file);
+  const attempts = [
+    `/input_thumbs/thumb?${tq}`,
+    `/view?${vq}`,
+    `/api/view?${vq}`,
+  ];
   let lastErr = "preview failed";
   for (const path of attempts) {
     try {
@@ -197,6 +213,10 @@ function injectStyles() {
 
 function closeModal() {
   document.querySelectorAll(".itg-overlay").forEach((el) => {
+    if (el._itgObserver) {
+      el._itgObserver.disconnect();
+      el._itgObserver = null;
+    }
     el.querySelectorAll("img").forEach((img) => {
       if (img.src && img.src.startsWith("blob:")) URL.revokeObjectURL(img.src);
     });
@@ -249,7 +269,31 @@ async function openModal(node) {
   const upBtn = overlay.querySelector("[data-act=up]");
   const state = { folder: "", dirs: [], files: [] };
 
+  function initObserver() {
+    if (overlay._itgObserver) {
+      overlay._itgObserver.disconnect();
+      overlay._itgObserver = null;
+    }
+    if (window.IntersectionObserver) {
+      overlay._itgObserver = new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            if (entry.isIntersecting) {
+              overlay._itgObserver.unobserve(entry.target);
+              if (typeof entry.target._loadThumb === "function") {
+                entry.target._loadThumb();
+                delete entry.target._loadThumb;
+              }
+            }
+          }
+        },
+        { root: grid, rootMargin: "200px" }
+      );
+    }
+  }
+
   function render() {
+    initObserver();
     const query = searchEl.value.trim().toLowerCase();
     pathEl.textContent = state.folder ? `input/${state.folder}` : "input/";
     upBtn.disabled = !state.folder;
@@ -295,20 +339,29 @@ async function openModal(node) {
       });
       grid.appendChild(card);
 
-      blobUrlFor(file)
-        .then((url) => {
-          const img = document.createElement("img");
-          img.alt = file.name;
-          img.src = url;
-          img.style.cssText = `width:100%;height:${THUMB}px;min-height:${THUMB}px;object-fit:cover;display:block;border:0;`;
-          box.replaceChildren(img);
-        })
-        .catch((err) => {
-          box.textContent = err.message || "no preview";
-          box.style.color = "#c88";
-          box.style.fontSize = "11px";
-          box.style.padding = "8px";
-        });
+      const loadThumb = () => {
+        blobUrlFor(file)
+          .then((url) => {
+            const img = document.createElement("img");
+            img.alt = file.name;
+            img.src = url;
+            img.style.cssText = `width:100%;height:${THUMB}px;min-height:${THUMB}px;object-fit:cover;display:block;border:0;`;
+            box.replaceChildren(img);
+          })
+          .catch((err) => {
+            box.textContent = err.message || "no preview";
+            box.style.color = "#c88";
+            box.style.fontSize = "11px";
+            box.style.padding = "8px";
+          });
+      };
+
+      if (overlay._itgObserver) {
+        card._loadThumb = loadThumb;
+        overlay._itgObserver.observe(card);
+      } else {
+        loadThumb();
+      }
     }
   }
 

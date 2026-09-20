@@ -37,6 +37,19 @@ ComfyUI-InputThumbnails/
   README.md
 ```
 
+## Thumbnail Cache (`.cache/thumb`)
+
+To maximize gallery performance and eliminate lag when browsing folders with many or large images:
+
+- **Location**: Thumbnails are cached in `ComfyUI/input/.cache/thumb/` (created automatically).
+- **Namespaced & Isolated**: All cache operations are strictly confined to `.cache/thumb/`. It will never modify user images or interfere with other custom nodes using `.cache/`.
+- **Filename & Hash Matching**: Cached thumbnails match the source filename and SHA-256 content hash. If an image is modified or overwritten, the cache updates automatically and obsolete thumbnails are cleaned up.
+- **Subfolder Structure**: Cache files mirror your input subfolder hierarchy and shard by hash prefix (`input/.cache/thumb/<subfolder>/<hash[:2]>/<filename>_<hash>.webp`).
+- **Smooth & Non-Blocking**: On first load, real images stream immediately while thumbnails generate in background daemon threads (ComfyUI never freezes and exit is never blocked).
+- **Hidden from UI**: The `.cache` directory is filtered out so it never appears as an image card or in the node's dropdown list.
+- **Full Resolution Execution**: Caching is strictly for visual browsing. When running a workflow, the node always loads the original, uncompressed full-resolution image.
+- **Safe to Delete**: You can safely delete `input/.cache/thumb/` at any time to free up disk space; it will automatically recreate itself on demand.
+
 ## Notes
 
 Do not install this *and* a pack that also overrides core `LoadImage` if you only want one picker. This pack uses its own class name (`LoadImageGallery`), so it will not fight those packs — you will simply have two different loader nodes.
