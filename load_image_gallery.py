@@ -46,7 +46,7 @@ def _safe_under_input(rel: str, *, must_exist: bool = False) -> Path:
     root = _input_root()
     cleaned = (rel or "").replace("\\", "/").strip()
     parts = [p for p in cleaned.split("/") if p and p not in (".",)]
-    if any(p == ".." for p in parts):
+    if any(p == ".." or ":" in p for p in parts):
         raise ValueError("path traversal is not allowed")
     if parts and parts[0] == ".cache":
         raise ValueError("access to .cache folder is not allowed")
@@ -93,6 +93,8 @@ def _list_combo_values() -> list[str]:
 
 
 _HASH_CACHE: dict[str, tuple[int, int, str]] = {}
+_HASH_LOCK: threading.Lock = threading.Lock()
+_MAX_HASH_CACHE_ENTRIES: int = 20000
 _CACHE_QUEUE: queue.Queue = queue.Queue()
 _PENDING_BUILDS: set[str] = set()
 _PENDING_LOCK: threading.Lock = threading.Lock()
@@ -147,14 +149,22 @@ def _clean_old_cache(subfolder: str, filename: str, current_cache_path: Path) ->
     if not sub_dir.is_dir():
         return
     clean_name = Path(filename).name
-    pattern = f"*/{clean_name}_*.webp"
-    for old_file in sub_dir.glob(pattern):
-        try:
-            target = _assert_under_cache(old_file)
-            if target != current_cache_path.resolve():
-                target.unlink()
-        except (ValueError, OSError):
-            pass
+    expected_prefix = f"{clean_name}_"
+    # Iterate subdirectories safely without glob pattern injection
+    try:
+        for hash_dir in sub_dir.iterdir():
+            if not hash_dir.is_dir():
+                continue
+            for old_file in hash_dir.iterdir():
+                try:
+                    target = _assert_under_cache(old_file)
+                    if target.name.startswith(expected_prefix) and target.name.endswith(".webp"):
+                        if target != current_cache_path.resolve():
+                            target.unlink()
+                except (ValueError, OSError):
+                    pass
+    except OSError:
+        pass
 
 
 def _cleanup_stale_tmp_files() -> None:
@@ -183,9 +193,10 @@ def _compute_file_hash(path: Path) -> str:
     mtime_ns = stat.st_mtime_ns
     size = stat.st_size
 
-    cached = _HASH_CACHE.get(key)
-    if cached is not None and cached[0] == mtime_ns and cached[1] == size:
-        return cached[2]
+    with _HASH_LOCK:
+        cached = _HASH_CACHE.get(key)
+        if cached is not None and cached[0] == mtime_ns and cached[1] == size:
+            return cached[2]
 
     h = hashlib.sha256()
     try:
@@ -197,7 +208,10 @@ def _compute_file_hash(path: Path) -> str:
         fingerprint = f"{path.as_posix()}::{size}::{mtime_ns}"
         digest = hashlib.sha256(fingerprint.encode("utf-8")).hexdigest()
 
-    _HASH_CACHE[key] = (mtime_ns, size, digest)
+    with _HASH_LOCK:
+        if len(_HASH_CACHE) >= _MAX_HASH_CACHE_ENTRIES:
+            _HASH_CACHE.clear()
+        _HASH_CACHE[key] = (mtime_ns, size, digest)
     return digest
 
 
