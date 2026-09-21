@@ -72,6 +72,22 @@ To smoothly support folders containing thousands of images without browser DOM l
 - **Settings Persistence**: Your chosen page size is saved alongside your display style in `input/.cache/thumb/settings.json`.
 - **Memory Safety**: Blob URLs from previous pages are revoked automatically during navigation to keep memory usage low.
 
+## Sorting & Folder Display
+
+Customize your browsing order and view in the gallery header:
+
+- **Sorting Modes**:
+  - **Name (A → Z)** (*Default*): Natural alphanumeric sort (`image2` appears before `image10`).
+  - **Name (Z → A)**: Reverse alphanumeric sort.
+  - **Newest First**: Most recently modified images first (using file `mtime`), with filename tie-breaking.
+  - **Oldest First**: Oldest modified images first.
+- **Folder Toggle**:
+  - A checkbox in the header allows you to enable or disable displaying subfolder cards in the grid.
+  - When checked (*Default*), subfolder cards appear on Page 1 at the top of the grid.
+  - When unchecked, subfolder cards are hidden, dedicating 100% of the grid to images.
+  - Subfolder navigation is always preserved via the **↑ Folder** button.
+- **Settings Persistence**: Both `sort_by` and `show_folders` preferences are saved in `input/.cache/thumb/settings.json`.
+
 ## Notes
 
 Do not install this *and* a pack that also overrides core `LoadImage` if you only want one picker. This pack uses its own class name (`LoadImageGallery`), so it will not fight those packs — you will simply have two different loader nodes.

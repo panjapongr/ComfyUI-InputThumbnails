@@ -172,6 +172,7 @@ function injectStyles() {
       align-items: center;
       padding: 10px 12px;
       border-bottom: 1px solid #333;
+      flex-wrap: wrap;
     }
     .itg-head input, .itg-head button, .itg-head select {
       background: #111;
@@ -180,6 +181,23 @@ function injectStyles() {
       border-radius: 4px;
       padding: 6px 10px;
       font-size: 13px;
+    }
+    .itg-toggle-label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      color: #ddd;
+      user-select: none;
+      padding: 0 4px;
+    }
+    .itg-toggle-label input[type="checkbox"] {
+      cursor: pointer;
+      accent-color: #6ea8fe;
+      margin: 0;
+      width: 14px;
+      height: 14px;
     }
     .itg-head select { cursor: pointer; }
     .itg-head select:focus { outline: none; border-color: #6ea8fe; }
@@ -346,6 +364,15 @@ async function openModal(node) {
           <option value="stretch">Stretch</option>
           <option value="center">Center</option>
         </select>
+        <select data-act="sort-by" title="Sort Images">
+          <option value="name_asc">Name (A–Z)</option>
+          <option value="name_desc">Name (Z–A)</option>
+          <option value="date_desc">Newest First</option>
+          <option value="date_asc">Oldest First</option>
+        </select>
+        <label class="itg-toggle-label" title="Show or hide folder cards in the grid">
+          <input type="checkbox" data-act="show-folders" checked /> Folders
+        </label>
         <input type="search" placeholder="Search images…" data-act="search" maxlength="128" autocomplete="off" spellcheck="false" />
         <button type="button" data-act="close">Close</button>
       </div>
@@ -379,6 +406,8 @@ async function openModal(node) {
   const searchEl = overlay.querySelector("[data-act=search]");
   const upBtn = overlay.querySelector("[data-act=up]");
   const fitSelect = overlay.querySelector("[data-act=fit-style]");
+  const sortSelect = overlay.querySelector("[data-act=sort-by]");
+  const foldersCheckbox = overlay.querySelector("[data-act=show-folders]");
   const footInfo = overlay.querySelector("[data-el=foot-info]");
   const btnFirst = overlay.querySelector("[data-act=page-first]");
   const btnPrev = overlay.querySelector("[data-act=page-prev]");
@@ -388,7 +417,15 @@ async function openModal(node) {
   const pageTotalEl = overlay.querySelector(".itg-page-total");
   const pageSizeSelect = overlay.querySelector("[data-act=page-size]");
 
-  const state = { folder: "", dirs: [], files: [], page: 1, pageSize: 60 };
+  const state = {
+    folder: "",
+    dirs: [],
+    files: [],
+    page: 1,
+    pageSize: 60,
+    sortBy: "name_asc",
+    showFolders: true,
+  };
 
   function applyFitStyle(style) {
     grid.classList.remove("fit-cover", "fit-contain", "fit-stretch", "fit-center");
@@ -408,6 +445,7 @@ async function openModal(node) {
     .then((res) => (res.ok ? res.json() : null))
     .then((data) => {
       if (data) {
+        let needRender = false;
         if (data.fit_style) {
           fitSelect.value = data.fit_style;
           applyFitStyle(data.fit_style);
@@ -415,8 +453,19 @@ async function openModal(node) {
         if (data.page_size && [60, 120, 240, 300, 600].includes(Number(data.page_size))) {
           state.pageSize = Number(data.page_size);
           pageSizeSelect.value = String(state.pageSize);
-          render();
+          needRender = true;
         }
+        if (data.sort_by && ["name_asc", "name_desc", "date_desc", "date_asc"].includes(data.sort_by)) {
+          state.sortBy = data.sort_by;
+          sortSelect.value = data.sort_by;
+          needRender = true;
+        }
+        if (typeof data.show_folders === "boolean") {
+          state.showFolders = data.show_folders;
+          foldersCheckbox.checked = data.show_folders;
+          needRender = true;
+        }
+        if (needRender) render();
       }
     })
     .catch(() => {});
@@ -430,6 +479,34 @@ async function openModal(node) {
       body: JSON.stringify({ fit_style: style }),
     }).catch((err) => {
       console.warn("[InputThumbnails] Failed to save fit style:", err);
+    });
+  });
+
+  sortSelect.addEventListener("change", () => {
+    const val = sortSelect.value;
+    state.sortBy = val;
+    state.page = 1;
+    render();
+    grid.scrollTop = 0;
+    api.fetchApi("/input_thumbs/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sort_by: val }),
+    }).catch((err) => {
+      console.warn("[InputThumbnails] Failed to save sort option:", err);
+    });
+  });
+
+  foldersCheckbox.addEventListener("change", () => {
+    const val = foldersCheckbox.checked;
+    state.showFolders = val;
+    render();
+    api.fetchApi("/input_thumbs/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ show_folders: val }),
+    }).catch((err) => {
+      console.warn("[InputThumbnails] Failed to save folders toggle:", err);
     });
   });
 
@@ -481,7 +558,27 @@ async function openModal(node) {
 
     // Search across ALL directories and files in this folder
     const dirs = state.dirs.filter((d) => d.name.toLowerCase().includes(query));
-    const files = state.files.filter((f) => f.name.toLowerCase().includes(query));
+    let files = state.files.filter((f) => f.name.toLowerCase().includes(query));
+
+    // Sort the entire filtered file set BEFORE pagination slicing
+    if (state.sortBy === "name_desc") {
+      files.sort((a, b) => b.name.localeCompare(a.name, undefined, { numeric: true, sensitivity: "base" }));
+    } else if (state.sortBy === "date_desc") {
+      files.sort(
+        (a, b) =>
+          (b.mtime || 0) - (a.mtime || 0) ||
+          a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" })
+      );
+    } else if (state.sortBy === "date_asc") {
+      files.sort(
+        (a, b) =>
+          (a.mtime || 0) - (b.mtime || 0) ||
+          a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" })
+      );
+    } else {
+      // Default: name_asc
+      files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
+    }
 
     // Revoke previous blob URLs to prevent memory bloat
     grid.querySelectorAll("img").forEach((img) => {
@@ -489,7 +586,7 @@ async function openModal(node) {
     });
     grid.innerHTML = "";
 
-    // Strict bounds calculations
+    // Strict bounds calculations based on image files
     const total = files.length;
     const totalPages = Math.max(1, Math.ceil(total / state.pageSize));
     state.page = Math.min(Math.max(1, state.page || 1), totalPages);
@@ -517,7 +614,8 @@ async function openModal(node) {
         : `Showing ${rangeStr} of ${total} images`;
     }
 
-    if (!dirs.length && !pagedFiles.length) {
+    const visibleDirsCount = state.page === 1 && state.showFolders ? dirs.length : 0;
+    if (!visibleDirsCount && !pagedFiles.length) {
       const empty = document.createElement("div");
       empty.className = "itg-empty";
       empty.textContent = query
@@ -527,8 +625,8 @@ async function openModal(node) {
       return;
     }
 
-    // Folders appear on Page 1 at the top of the grid
-    if (state.page === 1) {
+    // Folders appear on Page 1 at the top of the grid when enabled
+    if (state.page === 1 && state.showFolders) {
       for (const dir of dirs) {
         const card = document.createElement("div");
         card.className = "itg-card";
