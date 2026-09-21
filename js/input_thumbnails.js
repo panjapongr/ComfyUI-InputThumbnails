@@ -173,7 +173,7 @@ function injectStyles() {
       padding: 10px 12px;
       border-bottom: 1px solid #333;
     }
-    .itg-head input, .itg-head button {
+    .itg-head input, .itg-head button, .itg-head select {
       background: #111;
       color: #eee;
       border: 1px solid #555;
@@ -181,6 +181,8 @@ function injectStyles() {
       padding: 6px 10px;
       font-size: 13px;
     }
+    .itg-head select { cursor: pointer; }
+    .itg-head select:focus { outline: none; border-color: #6ea8fe; }
     .itg-head input { flex: 1; min-width: 120px; }
     .itg-head button { cursor: pointer; }
     .itg-path { padding: 6px 12px 0; color: #9aa; font-size: 12px; }
@@ -193,6 +195,17 @@ function injectStyles() {
       align-content: start;
       padding: 12px;
     }
+    .itg-grid img {
+      width: 100%;
+      height: ${THUMB}px;
+      min-height: ${THUMB}px;
+      display: block;
+      border: 0;
+    }
+    .itg-grid.fit-cover img { object-fit: cover !important; object-position: center !important; }
+    .itg-grid.fit-contain img { object-fit: contain !important; object-position: center !important; }
+    .itg-grid.fit-stretch img { object-fit: fill !important; }
+    .itg-grid.fit-center img { object-fit: none !important; object-position: center !important; }
     .itg-card {
       background: #141414;
       border: 1px solid #333;
@@ -254,11 +267,17 @@ async function openModal(node) {
       <div class="itg-head">
         <button type="button" data-act="up">↑ Folder</button>
         <button type="button" data-act="refresh">↻ Refresh</button>
+        <select data-act="fit-style" title="Thumbnail Display Style">
+          <option value="cover">Fill</option>
+          <option value="contain">Fit</option>
+          <option value="stretch">Stretch</option>
+          <option value="center">Center</option>
+        </select>
         <input type="search" placeholder="Search images…" data-act="search" />
         <button type="button" data-act="close">Close</button>
       </div>
       <div class="itg-path">input/</div>
-      <div class="itg-grid"></div>
+      <div class="itg-grid fit-cover"></div>
     </div>
   `;
   document.body.appendChild(overlay);
@@ -267,7 +286,35 @@ async function openModal(node) {
   const pathEl = overlay.querySelector(".itg-path");
   const searchEl = overlay.querySelector("[data-act=search]");
   const upBtn = overlay.querySelector("[data-act=up]");
+  const fitSelect = overlay.querySelector("[data-act=fit-style]");
   const state = { folder: "", dirs: [], files: [] };
+
+  function applyFitStyle(style) {
+    grid.classList.remove("fit-cover", "fit-contain", "fit-stretch", "fit-center");
+    if (style) grid.classList.add(`fit-${style}`);
+  }
+
+  api.fetchApi("/input_thumbs/settings")
+    .then((res) => (res.ok ? res.json() : null))
+    .then((data) => {
+      if (data && data.fit_style) {
+        fitSelect.value = data.fit_style;
+        applyFitStyle(data.fit_style);
+      }
+    })
+    .catch(() => {});
+
+  fitSelect.addEventListener("change", () => {
+    const style = fitSelect.value;
+    applyFitStyle(style);
+    api.fetchApi("/input_thumbs/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fit_style: style }),
+    }).catch((err) => {
+      console.warn("[InputThumbnails] Failed to save fit style:", err);
+    });
+  });
 
   function initObserver() {
     if (overlay._itgObserver) {
@@ -345,7 +392,6 @@ async function openModal(node) {
             const img = document.createElement("img");
             img.alt = file.name;
             img.src = url;
-            img.style.cssText = `width:100%;height:${THUMB}px;min-height:${THUMB}px;object-fit:cover;display:block;border:0;`;
             box.replaceChildren(img);
           })
           .catch((err) => {

@@ -50,6 +50,17 @@ To maximize gallery performance and eliminate lag when browsing folders with man
 - **Full Resolution Execution**: Caching is strictly for visual browsing. When running a workflow, the node always loads the original, uncompressed full-resolution image.
 - **Safe to Delete**: You can safely delete `input/.cache/thumb/` at any time to free up disk space; it will automatically recreate itself on demand.
 
+## Thumbnail Display Styles & Settings
+
+You can adjust how thumbnails are rendered in the gallery using the dropdown menu in the browser header:
+
+- **Fill** (*Default*): Scales the image to fill the card square, cropping excess edges (`object-fit: cover`).
+- **Fit**: Scales the full image to fit inside the square without cropping, showing letterboxing on non-square ratios (`object-fit: contain`).
+- **Stretch**: Stretches the image to fill the entire square (`object-fit: fill`).
+- **Center**: Displays the center of the image at 1:1 unscaled resolution, clipping any overflow (`object-fit: none`).
+
+Your display style choice is persisted on the server in `ComfyUI/input/.cache/thumb/settings.json`. If this file is ever missing or corrupted, it automatically self-heals by restoring default settings.
+
 ## Notes
 
 Do not install this *and* a pack that also overrides core `LoadImage` if you only want one picker. This pack uses its own class name (`LoadImageGallery`), so it will not fight those packs — you will simply have two different loader nodes.

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import json
 import os
 import queue
 import threading
@@ -119,6 +120,68 @@ def _assert_under_cache(path: Path) -> Path:
     except ValueError as exc:
         raise ValueError(f"Filesystem mutation rejected: {path} is outside .cache/thumb") from exc
     return resolved
+
+
+DEFAULT_SETTINGS = {"fit_style": "cover"}
+ALLOWED_FIT_STYLES = {"cover", "contain", "stretch", "center"}
+SETTINGS_FILENAME = "settings.json"
+_SETTINGS_LOCK: threading.RLock = threading.RLock()
+
+
+def _settings_path() -> Path:
+    """Return path to settings.json, strictly guarded under .cache/thumb."""
+    return _assert_under_cache(_cache_root() / SETTINGS_FILENAME)
+
+
+def _save_settings(data: dict) -> bool:
+    """Save settings dictionary to settings.json atomically inside .cache/thumb."""
+    with _SETTINGS_LOCK:
+        temp_file = None
+        try:
+            target = _settings_path()
+            temp_file = target.with_name(f".settings.tmp.{os.getpid()}.{threading.get_ident()}")
+            _assert_under_cache(temp_file)
+            with open(temp_file, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+            temp_file.replace(target)
+            return True
+        except Exception as exc:
+            if temp_file and temp_file.is_file():
+                try:
+                    _assert_under_cache(temp_file).unlink()
+                except (OSError, ValueError):
+                    pass
+            print(f"[InputThumbnails] Failed to save settings: {exc}")
+            return False
+
+
+def _get_settings() -> dict:
+    """Read settings from settings.json with automatic corruption recovery."""
+    with _SETTINGS_LOCK:
+        path = _settings_path()
+        if not path.is_file():
+            _save_settings(DEFAULT_SETTINGS)
+            return DEFAULT_SETTINGS.copy()
+
+        try:
+            if path.stat().st_size == 0:
+                raise ValueError("settings.json is 0 bytes")
+
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            if not isinstance(data, dict):
+                raise ValueError("settings.json root is not an object")
+
+            fit_style = data.get("fit_style")
+            if fit_style not in ALLOWED_FIT_STYLES:
+                raise ValueError(f"invalid fit_style: {fit_style}")
+
+            return {"fit_style": fit_style}
+        except Exception as exc:
+            print(f"[InputThumbnails] settings.json corrupted or invalid ({exc}), recovering to defaults...")
+            _save_settings(DEFAULT_SETTINGS)
+            return DEFAULT_SETTINGS.copy()
 
 
 def _cache_path(subfolder: str, filename: str, file_hash: str) -> Path:
@@ -286,6 +349,7 @@ for _worker_idx in range(_MAX_CACHE_WORKERS):
 def _init_cache_dir() -> None:
     try:
         _cache_root()
+        _get_settings()
     except Exception:
         pass
 
@@ -432,6 +496,38 @@ async def list_input_folder(request):
             "files": files,
         }
     )
+
+
+@PromptServer.instance.routes.get("/input_thumbs/settings")
+async def get_input_thumbnails_settings(request):
+    loop = asyncio.get_running_loop()
+    settings = await loop.run_in_executor(None, _get_settings)
+    return web.json_response(settings)
+
+
+@PromptServer.instance.routes.post("/input_thumbs/settings")
+async def save_input_thumbnails_settings(request):
+    try:
+        body = await request.json()
+    except Exception:
+        return web.json_response({"error": "invalid json"}, status=400)
+
+    if not isinstance(body, dict):
+        return web.json_response({"error": "payload must be a JSON object"}, status=400)
+
+    fit_style = body.get("fit_style")
+    if fit_style not in ALLOWED_FIT_STYLES:
+        return web.json_response(
+            {"error": f"fit_style must be one of {sorted(ALLOWED_FIT_STYLES)}"},
+            status=400,
+        )
+
+    loop = asyncio.get_running_loop()
+    success = await loop.run_in_executor(None, _save_settings, {"fit_style": fit_style})
+    if not success:
+        return web.json_response({"error": "failed to write settings"}, status=500)
+
+    return web.json_response({"fit_style": fit_style})
 
 
 class LoadImageGallery:
