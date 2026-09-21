@@ -122,9 +122,15 @@ def _assert_under_cache(path: Path) -> Path:
     return resolved
 
 
-DEFAULT_SETTINGS = {"fit_style": "cover", "page_size": 60}
+DEFAULT_SETTINGS = {
+    "fit_style": "cover",
+    "page_size": 60,
+    "sort_by": "name_asc",
+    "show_folders": True,
+}
 ALLOWED_FIT_STYLES = {"cover", "contain", "stretch", "center"}
 ALLOWED_PAGE_SIZES = {60, 120, 240, 300, 600}
+ALLOWED_SORT_OPTIONS = {"name_asc", "name_desc", "date_desc", "date_asc"}
 SETTINGS_FILENAME = "settings.json"
 _SETTINGS_LOCK: threading.RLock = threading.RLock()
 
@@ -182,8 +188,26 @@ def _get_settings() -> dict:
             if page_size not in ALLOWED_PAGE_SIZES:
                 page_size = DEFAULT_SETTINGS["page_size"]
 
-            clean_settings = {"fit_style": fit_style, "page_size": page_size}
-            if data.get("fit_style") != fit_style or data.get("page_size") != page_size:
+            sort_by = data.get("sort_by")
+            if sort_by not in ALLOWED_SORT_OPTIONS:
+                sort_by = DEFAULT_SETTINGS["sort_by"]
+
+            show_folders = data.get("show_folders")
+            if not isinstance(show_folders, bool):
+                show_folders = DEFAULT_SETTINGS["show_folders"]
+
+            clean_settings = {
+                "fit_style": fit_style,
+                "page_size": page_size,
+                "sort_by": sort_by,
+                "show_folders": show_folders,
+            }
+            if (
+                data.get("fit_style") != fit_style
+                or data.get("page_size") != page_size
+                or data.get("sort_by") != sort_by
+                or data.get("show_folders") != show_folders
+            ):
                 _save_settings(clean_settings)
 
             return clean_settings
@@ -551,6 +575,26 @@ async def save_input_thumbnails_settings(request):
                 status=400,
             )
         current_settings["page_size"] = page_size
+        updated = True
+
+    if "sort_by" in body:
+        sort_by = body.get("sort_by")
+        if sort_by not in ALLOWED_SORT_OPTIONS:
+            return web.json_response(
+                {"error": f"sort_by must be one of {sorted(ALLOWED_SORT_OPTIONS)}"},
+                status=400,
+            )
+        current_settings["sort_by"] = sort_by
+        updated = True
+
+    if "show_folders" in body:
+        show_folders = body.get("show_folders")
+        if not isinstance(show_folders, bool):
+            return web.json_response(
+                {"error": "show_folders must be a boolean"},
+                status=400,
+            )
+        current_settings["show_folders"] = show_folders
         updated = True
 
     if not updated:
