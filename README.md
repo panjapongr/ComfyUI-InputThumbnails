@@ -9,6 +9,10 @@ A small ComfyUI custom node that shows **thumbnails while you browse** `ComfyUI/
 - Subfolder navigation, search, sort by name / newest / oldest
 - Same outputs as Load Image: `IMAGE` + `MASK`
 
+![Thumbnail browser popup](docs/screenshot2.jpg)
+
+![Selected image on the node](docs/screenshot1.jpg)
+
 ## Install
 
 1. Copy the `ComfyUI-InputThumbnails` folder into:
