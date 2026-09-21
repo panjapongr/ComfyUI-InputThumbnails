@@ -61,6 +61,17 @@ You can adjust how thumbnails are rendered in the gallery using the dropdown men
 
 Your display style choice is persisted on the server in `ComfyUI/input/.cache/thumb/settings.json`. If this file is ever missing or corrupted, it automatically self-heals by restoring default settings.
 
+## Pagination & High-Capacity Browsing
+
+To smoothly support folders containing thousands of images without browser DOM lag or memory bloat:
+
+- **Pagination Controls**: Navigate large directories using **« First**, **‹ Previous**, **Page [X] of Y**, **Next ›**, and **Last »**.
+- **Adjustable Page Size**: Choose between **60**, **120**, **240**, **300**, or **600** items per page via the footer dropdown (default: 60).
+- **Global Search**: The search box searches across **all** images in the current folder, then paginates the matching results.
+- **Index Out-of-Bounds Protection**: Automatic index clamping and input sanitization prevent invalid page requests.
+- **Settings Persistence**: Your chosen page size is saved alongside your display style in `input/.cache/thumb/settings.json`.
+- **Memory Safety**: Blob URLs from previous pages are revoked automatically during navigation to keep memory usage low.
+
 ## Notes
 
 Do not install this *and* a pack that also overrides core `LoadImage` if you only want one picker. This pack uses its own class name (`LoadImageGallery`), so it will not fight those packs — you will simply have two different loader nodes.

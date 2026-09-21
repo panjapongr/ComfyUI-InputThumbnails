@@ -220,6 +220,79 @@ function injectStyles() {
     .itg-card.is-selected { border-color: #6ea8fe; }
     .itg-name { padding: 6px 8px 8px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .itg-empty { grid-column: 1 / -1; text-align: center; color: #aaa; padding: 40px 10px; }
+    .itg-foot {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 8px 12px;
+      border-top: 1px solid #333;
+      background: #181818;
+      font-size: 12px;
+      color: #bbb;
+      flex-wrap: wrap;
+    }
+    .itg-foot-info {
+      flex: 1 1 auto;
+      min-width: 140px;
+      white-space: nowrap;
+    }
+    .itg-foot-nav {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .itg-foot-nav button {
+      background: #111;
+      color: #eee;
+      border: 1px solid #555;
+      border-radius: 4px;
+      padding: 4px 10px;
+      font-size: 13px;
+      cursor: pointer;
+      min-width: 32px;
+    }
+    .itg-foot-nav button:hover:not(:disabled) {
+      border-color: #888;
+      background: #222;
+    }
+    .itg-foot-nav button:disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+    }
+    .itg-page-label {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      padding: 0 4px;
+    }
+    .itg-page-label input {
+      width: 48px;
+      background: #111;
+      color: #eee;
+      border: 1px solid #555;
+      border-radius: 4px;
+      padding: 3px 6px;
+      font-size: 12px;
+      text-align: center;
+    }
+    .itg-page-label input:focus {
+      outline: none;
+      border-color: #6ea8fe;
+    }
+    .itg-foot-size select {
+      background: #111;
+      color: #eee;
+      border: 1px solid #555;
+      border-radius: 4px;
+      padding: 4px 8px;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    .itg-foot-size select:focus {
+      outline: none;
+      border-color: #6ea8fe;
+    }
   `;
   document.head.appendChild(style);
 }
@@ -273,11 +346,30 @@ async function openModal(node) {
           <option value="stretch">Stretch</option>
           <option value="center">Center</option>
         </select>
-        <input type="search" placeholder="Search images…" data-act="search" />
+        <input type="search" placeholder="Search images…" data-act="search" maxlength="128" autocomplete="off" spellcheck="false" />
         <button type="button" data-act="close">Close</button>
       </div>
       <div class="itg-path">input/</div>
       <div class="itg-grid fit-cover"></div>
+      <div class="itg-foot">
+        <div class="itg-foot-info" data-el="foot-info"></div>
+        <div class="itg-foot-nav">
+          <button type="button" data-act="page-first" title="First Page">«</button>
+          <button type="button" data-act="page-prev" title="Previous Page">‹</button>
+          <span class="itg-page-label">Page <input type="number" data-act="page-input" min="1" value="1" /> of <span class="itg-page-total">1</span></span>
+          <button type="button" data-act="page-next" title="Next Page">›</button>
+          <button type="button" data-act="page-last" title="Last Page">»</button>
+        </div>
+        <div class="itg-foot-size">
+          <select data-act="page-size" title="Items per page">
+            <option value="60">60 / page</option>
+            <option value="120">120 / page</option>
+            <option value="240">240 / page</option>
+            <option value="300">300 / page</option>
+            <option value="600">600 / page</option>
+          </select>
+        </div>
+      </div>
     </div>
   `;
   document.body.appendChild(overlay);
@@ -287,19 +379,44 @@ async function openModal(node) {
   const searchEl = overlay.querySelector("[data-act=search]");
   const upBtn = overlay.querySelector("[data-act=up]");
   const fitSelect = overlay.querySelector("[data-act=fit-style]");
-  const state = { folder: "", dirs: [], files: [] };
+  const footInfo = overlay.querySelector("[data-el=foot-info]");
+  const btnFirst = overlay.querySelector("[data-act=page-first]");
+  const btnPrev = overlay.querySelector("[data-act=page-prev]");
+  const btnNext = overlay.querySelector("[data-act=page-next]");
+  const btnLast = overlay.querySelector("[data-act=page-last]");
+  const pageInput = overlay.querySelector("[data-act=page-input]");
+  const pageTotalEl = overlay.querySelector(".itg-page-total");
+  const pageSizeSelect = overlay.querySelector("[data-act=page-size]");
+
+  const state = { folder: "", dirs: [], files: [], page: 1, pageSize: 60 };
 
   function applyFitStyle(style) {
     grid.classList.remove("fit-cover", "fit-contain", "fit-stretch", "fit-center");
     if (style) grid.classList.add(`fit-${style}`);
   }
 
+  function sanitizeSearchQuery(raw) {
+    return String(raw || "")
+      .slice(0, 128)
+      .replace(/[\x00-\x1F\x7F]/g, "")
+      .normalize("NFC")
+      .trim()
+      .toLowerCase();
+  }
+
   api.fetchApi("/input_thumbs/settings")
     .then((res) => (res.ok ? res.json() : null))
     .then((data) => {
-      if (data && data.fit_style) {
-        fitSelect.value = data.fit_style;
-        applyFitStyle(data.fit_style);
+      if (data) {
+        if (data.fit_style) {
+          fitSelect.value = data.fit_style;
+          applyFitStyle(data.fit_style);
+        }
+        if (data.page_size && [60, 120, 240, 300, 600].includes(Number(data.page_size))) {
+          state.pageSize = Number(data.page_size);
+          pageSizeSelect.value = String(state.pageSize);
+          render();
+        }
       }
     })
     .catch(() => {});
@@ -314,6 +431,23 @@ async function openModal(node) {
     }).catch((err) => {
       console.warn("[InputThumbnails] Failed to save fit style:", err);
     });
+  });
+
+  pageSizeSelect.addEventListener("change", () => {
+    const val = parseInt(pageSizeSelect.value, 10);
+    if ([60, 120, 240, 300, 600].includes(val)) {
+      state.pageSize = val;
+      state.page = 1;
+      render();
+      grid.scrollTop = 0;
+      api.fetchApi("/input_thumbs/settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ page_size: val }),
+      }).catch((err) => {
+        console.warn("[InputThumbnails] Failed to save page size:", err);
+      });
+    }
   });
 
   function initObserver() {
@@ -341,36 +475,80 @@ async function openModal(node) {
 
   function render() {
     initObserver();
-    const query = searchEl.value.trim().toLowerCase();
+    const query = sanitizeSearchQuery(searchEl.value);
     pathEl.textContent = state.folder ? `input/${state.folder}` : "input/";
     upBtn.disabled = !state.folder;
+
+    // Search across ALL directories and files in this folder
     const dirs = state.dirs.filter((d) => d.name.toLowerCase().includes(query));
     const files = state.files.filter((f) => f.name.toLowerCase().includes(query));
+
+    // Revoke previous blob URLs to prevent memory bloat
+    grid.querySelectorAll("img").forEach((img) => {
+      if (img.src && img.src.startsWith("blob:")) URL.revokeObjectURL(img.src);
+    });
     grid.innerHTML = "";
-    if (!dirs.length && !files.length) {
+
+    // Strict bounds calculations
+    const total = files.length;
+    const totalPages = Math.max(1, Math.ceil(total / state.pageSize));
+    state.page = Math.min(Math.max(1, state.page || 1), totalPages);
+
+    const startIdx = (state.page - 1) * state.pageSize;
+    const endIdx = Math.min(startIdx + state.pageSize, total);
+    const pagedFiles = files.slice(startIdx, endIdx);
+
+    // Update pagination footer controls
+    pageInput.value = String(state.page);
+    pageInput.max = String(totalPages);
+    pageTotalEl.textContent = String(totalPages);
+
+    btnFirst.disabled = state.page <= 1;
+    btnPrev.disabled = state.page <= 1;
+    btnNext.disabled = state.page >= totalPages;
+    btnLast.disabled = state.page >= totalPages;
+
+    if (total === 0) {
+      footInfo.textContent = query ? "No matching images" : "0 images";
+    } else {
+      const rangeStr = `${startIdx + 1}–${endIdx}`;
+      footInfo.textContent = query
+        ? `Showing ${rangeStr} of ${total} match${total === 1 ? "" : "es"} (${state.files.length} total)`
+        : `Showing ${rangeStr} of ${total} images`;
+    }
+
+    if (!dirs.length && !pagedFiles.length) {
       const empty = document.createElement("div");
       empty.className = "itg-empty";
-      empty.textContent = "No images in this folder. Put files in ComfyUI/input and click Refresh.";
+      empty.textContent = query
+        ? "No files matching your search."
+        : "No images in this folder. Put files in ComfyUI/input and click Refresh.";
       grid.appendChild(empty);
       return;
     }
 
-    for (const dir of dirs) {
-      const card = document.createElement("div");
-      card.className = "itg-card";
-      const box = thumbBox();
-      box.textContent = "📁";
-      box.style.fontSize = "42px";
-      const name = document.createElement("div");
-      name.className = "itg-name";
-      name.textContent = dir.name;
-      card.append(box, name);
-      card.addEventListener("click", () => refresh(dir.rel));
-      grid.appendChild(card);
+    // Folders appear on Page 1 at the top of the grid
+    if (state.page === 1) {
+      for (const dir of dirs) {
+        const card = document.createElement("div");
+        card.className = "itg-card";
+        const box = thumbBox();
+        box.textContent = "📁";
+        box.style.fontSize = "42px";
+        const name = document.createElement("div");
+        name.className = "itg-name";
+        name.textContent = dir.name;
+        card.append(box, name);
+        card.addEventListener("click", () => {
+          state.page = 1;
+          refresh(dir.rel);
+        });
+        grid.appendChild(card);
+      }
     }
 
     const current = imageWidget(node)?.value || "";
-    for (const file of files) {
+    for (const file of pagedFiles) {
       const card = document.createElement("div");
       card.className = "itg-card" + (file.rel === current ? " is-selected" : "");
       const box = thumbBox();
@@ -411,12 +589,71 @@ async function openModal(node) {
     }
   }
 
+  btnFirst.addEventListener("click", () => {
+    if (state.page > 1) {
+      state.page = 1;
+      render();
+      grid.scrollTop = 0;
+    }
+  });
+
+  btnPrev.addEventListener("click", () => {
+    if (state.page > 1) {
+      state.page--;
+      render();
+      grid.scrollTop = 0;
+    }
+  });
+
+  btnNext.addEventListener("click", () => {
+    const query = sanitizeSearchQuery(searchEl.value);
+    const total = state.files.filter((f) => f.name.toLowerCase().includes(query)).length;
+    const totalPages = Math.max(1, Math.ceil(total / state.pageSize));
+    if (state.page < totalPages) {
+      state.page++;
+      render();
+      grid.scrollTop = 0;
+    }
+  });
+
+  btnLast.addEventListener("click", () => {
+    const query = sanitizeSearchQuery(searchEl.value);
+    const total = state.files.filter((f) => f.name.toLowerCase().includes(query)).length;
+    const totalPages = Math.max(1, Math.ceil(total / state.pageSize));
+    if (state.page < totalPages) {
+      state.page = totalPages;
+      render();
+      grid.scrollTop = 0;
+    }
+  });
+
+  function jumpToPage() {
+    const query = sanitizeSearchQuery(searchEl.value);
+    const total = state.files.filter((f) => f.name.toLowerCase().includes(query)).length;
+    const totalPages = Math.max(1, Math.ceil(total / state.pageSize));
+    let target = parseInt(pageInput.value, 10);
+    if (isNaN(target) || target < 1) target = 1;
+    if (target > totalPages) target = totalPages;
+    state.page = target;
+    render();
+    grid.scrollTop = 0;
+  }
+
+  pageInput.addEventListener("change", jumpToPage);
+  pageInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      jumpToPage();
+    }
+  });
+
   async function refresh(folder) {
     grid.innerHTML = `<div class="itg-empty">Loading…</div>`;
     const data = await loadList(folder, node);
     state.folder = data.folder;
     state.dirs = data.dirs;
     state.files = data.files;
+    state.page = 1;
     render();
   }
 
@@ -429,9 +666,13 @@ async function openModal(node) {
     if (!state.folder) return;
     const parts = state.folder.split("/").filter(Boolean);
     parts.pop();
+    state.page = 1;
     refresh(parts.join("/"));
   });
-  searchEl.addEventListener("input", render);
+  searchEl.addEventListener("input", () => {
+    state.page = 1;
+    render();
+  });
 
   const current = imageWidget(node)?.value || "";
   const initial = current.includes("/") ? current.split("/").slice(0, -1).join("/") : "";

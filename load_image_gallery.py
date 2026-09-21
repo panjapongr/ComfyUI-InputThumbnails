@@ -122,8 +122,9 @@ def _assert_under_cache(path: Path) -> Path:
     return resolved
 
 
-DEFAULT_SETTINGS = {"fit_style": "cover"}
+DEFAULT_SETTINGS = {"fit_style": "cover", "page_size": 60}
 ALLOWED_FIT_STYLES = {"cover", "contain", "stretch", "center"}
+ALLOWED_PAGE_SIZES = {60, 120, 240, 300, 600}
 SETTINGS_FILENAME = "settings.json"
 _SETTINGS_LOCK: threading.RLock = threading.RLock()
 
@@ -175,9 +176,17 @@ def _get_settings() -> dict:
 
             fit_style = data.get("fit_style")
             if fit_style not in ALLOWED_FIT_STYLES:
-                raise ValueError(f"invalid fit_style: {fit_style}")
+                fit_style = DEFAULT_SETTINGS["fit_style"]
 
-            return {"fit_style": fit_style}
+            page_size = data.get("page_size")
+            if page_size not in ALLOWED_PAGE_SIZES:
+                page_size = DEFAULT_SETTINGS["page_size"]
+
+            clean_settings = {"fit_style": fit_style, "page_size": page_size}
+            if data.get("fit_style") != fit_style or data.get("page_size") != page_size:
+                _save_settings(clean_settings)
+
+            return clean_settings
         except Exception as exc:
             print(f"[InputThumbnails] settings.json corrupted or invalid ({exc}), recovering to defaults...")
             _save_settings(DEFAULT_SETTINGS)
@@ -515,19 +524,44 @@ async def save_input_thumbnails_settings(request):
     if not isinstance(body, dict):
         return web.json_response({"error": "payload must be a JSON object"}, status=400)
 
-    fit_style = body.get("fit_style")
-    if fit_style not in ALLOWED_FIT_STYLES:
-        return web.json_response(
-            {"error": f"fit_style must be one of {sorted(ALLOWED_FIT_STYLES)}"},
-            status=400,
-        )
+    current_settings = _get_settings()
+    updated = False
+
+    if "fit_style" in body:
+        fit_style = body.get("fit_style")
+        if fit_style not in ALLOWED_FIT_STYLES:
+            return web.json_response(
+                {"error": f"fit_style must be one of {sorted(ALLOWED_FIT_STYLES)}"},
+                status=400,
+            )
+        current_settings["fit_style"] = fit_style
+        updated = True
+
+    if "page_size" in body:
+        try:
+            page_size = int(body.get("page_size"))
+        except (ValueError, TypeError):
+            return web.json_response(
+                {"error": f"page_size must be an integer in {sorted(ALLOWED_PAGE_SIZES)}"},
+                status=400,
+            )
+        if page_size not in ALLOWED_PAGE_SIZES:
+            return web.json_response(
+                {"error": f"page_size must be one of {sorted(ALLOWED_PAGE_SIZES)}"},
+                status=400,
+            )
+        current_settings["page_size"] = page_size
+        updated = True
+
+    if not updated:
+        return web.json_response({"error": "no valid settings provided"}, status=400)
 
     loop = asyncio.get_running_loop()
-    success = await loop.run_in_executor(None, _save_settings, {"fit_style": fit_style})
+    success = await loop.run_in_executor(None, _save_settings, current_settings)
     if not success:
         return web.json_response({"error": "failed to write settings"}, status=500)
 
-    return web.json_response({"fit_style": fit_style})
+    return web.json_response(current_settings)
 
 
 class LoadImageGallery:
