@@ -1,6 +1,7 @@
 [project]
 name = "comfyui-input-thumbnails"
-version = "1.2.0"
+description = "A ComfyUI custom node that adds a fast, visual thumbnail gallery picker for browsing and selecting images from the input directory. Does not replace core Load Image."
+version = "1.2.1"
 license = { file = "LICENSE.txt" }
 
 [project.urls]
