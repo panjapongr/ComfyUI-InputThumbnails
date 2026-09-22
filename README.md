@@ -49,21 +49,28 @@ To maximize gallery performance and eliminate lag when browsing folders with man
 - **Namespaced & Isolated**: All cache operations are strictly confined to `.cache/thumb/`. It will never modify user images or interfere with other custom nodes using `.cache/`.
 - **Filename & Hash Matching**: Cached thumbnails match the source filename and SHA-256 content hash. If an image is modified or overwritten, the cache updates automatically and obsolete thumbnails are cleaned up.
 - **Subfolder Structure**: Cache files mirror your input subfolder hierarchy and shard by hash prefix (`input/.cache/thumb/<subfolder>/<hash[:2]>/<filename>_<hash>.webp`).
+- **High-Resolution Quality (Up to 320px)**: Thumbnails are generated as optimized WebP images up to 320px, providing ultra-sharp Retina rendering on standard grids and native clarity when scaling up.
 - **Smooth & Non-Blocking**: On first load, real images stream immediately while thumbnails generate in background daemon threads (ComfyUI never freezes and exit is never blocked).
 - **Hidden from UI**: The `.cache` directory is filtered out so it never appears as an image card or in the node's dropdown list.
 - **Full Resolution Execution**: Caching is strictly for visual browsing. When running a workflow, the node always loads the original, uncompressed full-resolution image.
 - **Safe to Delete**: You can safely delete `input/.cache/thumb/` at any time to free up disk space; it will automatically recreate itself on demand.
 
-## Thumbnail Display Styles & Settings
+## Thumbnail Sizes, Display Styles & Settings
 
-You can adjust how thumbnails are rendered in the gallery using the dropdown menu in the browser header:
+You can customize the thumbnail size and image fitting in the gallery using the header dropdowns:
 
+### Thumbnail Sizes
+- **Size: Normal** (*Default, 1x*): 140px box, compact grid for browsing large collections quickly.
+- **Size: Large (2x)**: 280px box, 2x enlargement for checking details without leaving the picker.
+- **Size: X-Large (3x)**: 420px box, 3x ultra-large preview cards for high-detail inspection.
+
+### Display Styles
 - **Fill** (*Default*): Scales the image to fill the card square, cropping excess edges (`object-fit: cover`).
 - **Fit**: Scales the full image to fit inside the square without cropping, showing letterboxing on non-square ratios (`object-fit: contain`).
 - **Stretch**: Stretches the image to fill the entire square (`object-fit: fill`).
 - **Center**: Displays the center of the image at 1:1 unscaled resolution, clipping any overflow (`object-fit: none`).
 
-Your display style choice is persisted on the server in `ComfyUI/input/.cache/thumb/settings.json`. If this file is ever missing or corrupted, it automatically self-heals by restoring default settings.
+All display style and thumbnail size choices are persisted on the server in `ComfyUI/input/.cache/thumb/settings.json`. If this file is ever missing or corrupted, it automatically self-heals by restoring default settings.
 
 ## Pagination & High-Capacity Browsing
 

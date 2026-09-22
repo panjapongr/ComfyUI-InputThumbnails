@@ -2,7 +2,6 @@ import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 
 const NODE_CLASS = "LoadImageGallery";
-const THUMB = 140;
 
 function fileFromRel(rel) {
   const parts = String(rel || "").replace(/\\/g, "/").split("/").filter(Boolean);
@@ -125,18 +124,7 @@ async function blobUrlFor(file) {
 
 function thumbBox() {
   const box = document.createElement("div");
-  box.style.cssText = [
-    `width:100%`,
-    `height:${THUMB}px`,
-    `min-height:${THUMB}px`,
-    `max-height:${THUMB}px`,
-    `background:#0d0d0d`,
-    `display:flex`,
-    `align-items:center`,
-    `justify-content:center`,
-    `overflow:hidden`,
-    `flex:0 0 ${THUMB}px`,
-  ].join(";");
+  box.className = "itg-thumb-box";
   return box;
 }
 
@@ -157,8 +145,8 @@ function injectStyles() {
       color: #eee;
     }
     .itg-panel {
-      width: min(960px, calc(100vw - 40px));
-      height: min(80vh, 820px);
+      width: min(1120px, calc(100vw - 40px));
+      height: min(85vh, 880px);
       background: #1c1c1c;
       border: 1px solid #444;
       border-radius: 10px;
@@ -205,18 +193,55 @@ function injectStyles() {
     .itg-head button { cursor: pointer; }
     .itg-path { padding: 6px 12px 0; color: #9aa; font-size: 12px; }
     .itg-grid {
+      --thumb-size: 140px;
+      --card-min: 160px;
       flex: 1 1 auto;
       overflow: auto;
       display: grid !important;
-      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(var(--card-min, 160px), 1fr));
       gap: 10px;
       align-content: start;
       padding: 12px;
     }
+    .itg-grid.size-normal {
+      --thumb-size: 140px;
+      --card-min: 160px;
+    }
+    .itg-grid.size-large {
+      --thumb-size: 280px;
+      --card-min: 300px;
+    }
+    .itg-grid.size-xlarge {
+      --thumb-size: 420px;
+      --card-min: 440px;
+    }
+    .itg-thumb-box {
+      width: 100%;
+      height: var(--thumb-size, 140px);
+      min-height: var(--thumb-size, 140px);
+      max-height: var(--thumb-size, 140px);
+      flex: 0 0 var(--thumb-size, 140px);
+      background: #0d0d0d;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+    .itg-folder-icon {
+      font-size: 42px;
+      line-height: 1;
+      user-select: none;
+    }
+    .itg-grid.size-large .itg-folder-icon {
+      font-size: 84px !important;
+    }
+    .itg-grid.size-xlarge .itg-folder-icon {
+      font-size: 126px !important;
+    }
     .itg-grid img {
       width: 100%;
-      height: ${THUMB}px;
-      min-height: ${THUMB}px;
+      height: var(--thumb-size, 140px);
+      min-height: var(--thumb-size, 140px);
       display: block;
       border: 0;
     }
@@ -232,7 +257,7 @@ function injectStyles() {
       overflow: hidden;
       display: flex !important;
       flex-direction: column;
-      min-height: ${THUMB + 32}px;
+      min-height: calc(var(--thumb-size, 140px) + 32px);
     }
     .itg-card:hover { border-color: #777; }
     .itg-card.is-selected { border-color: #6ea8fe; }
@@ -364,6 +389,11 @@ async function openModal(node) {
           <option value="stretch">Stretch</option>
           <option value="center">Center</option>
         </select>
+        <select data-act="thumb-size" title="Thumbnail Size">
+          <option value="normal">Size: Normal</option>
+          <option value="large">Size: Large (2x)</option>
+          <option value="xlarge">Size: X-Large (3x)</option>
+        </select>
         <select data-act="sort-by" title="Sort Images">
           <option value="name_asc">Name (A–Z)</option>
           <option value="name_desc">Name (Z–A)</option>
@@ -377,7 +407,7 @@ async function openModal(node) {
         <button type="button" data-act="close">Close</button>
       </div>
       <div class="itg-path">input/</div>
-      <div class="itg-grid fit-cover"></div>
+      <div class="itg-grid fit-cover size-normal"></div>
       <div class="itg-foot">
         <div class="itg-foot-info" data-el="foot-info"></div>
         <div class="itg-foot-nav">
@@ -406,6 +436,7 @@ async function openModal(node) {
   const searchEl = overlay.querySelector("[data-act=search]");
   const upBtn = overlay.querySelector("[data-act=up]");
   const fitSelect = overlay.querySelector("[data-act=fit-style]");
+  const sizeSelect = overlay.querySelector("[data-act=thumb-size]");
   const sortSelect = overlay.querySelector("[data-act=sort-by]");
   const foldersCheckbox = overlay.querySelector("[data-act=show-folders]");
   const footInfo = overlay.querySelector("[data-el=foot-info]");
@@ -425,11 +456,21 @@ async function openModal(node) {
     pageSize: 60,
     sortBy: "name_asc",
     showFolders: true,
+    thumbSize: "normal",
   };
 
   function applyFitStyle(style) {
     grid.classList.remove("fit-cover", "fit-contain", "fit-stretch", "fit-center");
     if (style) grid.classList.add(`fit-${style}`);
+  }
+
+  function applyThumbSize(size) {
+    grid.classList.remove("size-normal", "size-large", "size-xlarge");
+    if (size && ["normal", "large", "xlarge"].includes(size)) {
+      grid.classList.add(`size-${size}`);
+    } else {
+      grid.classList.add("size-normal");
+    }
   }
 
   function sanitizeSearchQuery(raw) {
@@ -449,6 +490,11 @@ async function openModal(node) {
         if (data.fit_style) {
           fitSelect.value = data.fit_style;
           applyFitStyle(data.fit_style);
+        }
+        if (data.thumb_size && ["normal", "large", "xlarge"].includes(data.thumb_size)) {
+          state.thumbSize = data.thumb_size;
+          sizeSelect.value = data.thumb_size;
+          applyThumbSize(data.thumb_size);
         }
         if (data.page_size && [60, 120, 240, 300, 600].includes(Number(data.page_size))) {
           state.pageSize = Number(data.page_size);
@@ -479,6 +525,19 @@ async function openModal(node) {
       body: JSON.stringify({ fit_style: style }),
     }).catch((err) => {
       console.warn("[InputThumbnails] Failed to save fit style:", err);
+    });
+  });
+
+  sizeSelect.addEventListener("change", () => {
+    const size = sizeSelect.value;
+    state.thumbSize = size;
+    applyThumbSize(size);
+    api.fetchApi("/input_thumbs/settings", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ thumb_size: size }),
+    }).catch((err) => {
+      console.warn("[InputThumbnails] Failed to save thumb size:", err);
     });
   });
 
@@ -631,8 +690,7 @@ async function openModal(node) {
         const card = document.createElement("div");
         card.className = "itg-card";
         const box = thumbBox();
-        box.textContent = "📁";
-        box.style.fontSize = "42px";
+        box.innerHTML = '<span class="itg-folder-icon">📁</span>';
         const name = document.createElement("div");
         name.className = "itg-name";
         name.textContent = dir.name;
