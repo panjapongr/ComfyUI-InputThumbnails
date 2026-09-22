@@ -127,10 +127,12 @@ DEFAULT_SETTINGS = {
     "page_size": 60,
     "sort_by": "name_asc",
     "show_folders": True,
+    "thumb_size": "normal",
 }
 ALLOWED_FIT_STYLES = {"cover", "contain", "stretch", "center"}
 ALLOWED_PAGE_SIZES = {60, 120, 240, 300, 600}
 ALLOWED_SORT_OPTIONS = {"name_asc", "name_desc", "date_desc", "date_asc"}
+ALLOWED_THUMB_SIZES = {"normal", "large", "xlarge"}
 SETTINGS_FILENAME = "settings.json"
 _SETTINGS_LOCK: threading.RLock = threading.RLock()
 
@@ -196,17 +198,23 @@ def _get_settings() -> dict:
             if not isinstance(show_folders, bool):
                 show_folders = DEFAULT_SETTINGS["show_folders"]
 
+            thumb_size = data.get("thumb_size")
+            if thumb_size not in ALLOWED_THUMB_SIZES:
+                thumb_size = DEFAULT_SETTINGS["thumb_size"]
+
             clean_settings = {
                 "fit_style": fit_style,
                 "page_size": page_size,
                 "sort_by": sort_by,
                 "show_folders": show_folders,
+                "thumb_size": thumb_size,
             }
             if (
                 data.get("fit_style") != fit_style
                 or data.get("page_size") != page_size
                 or data.get("sort_by") != sort_by
                 or data.get("show_folders") != show_folders
+                or data.get("thumb_size") != thumb_size
             ):
                 _save_settings(clean_settings)
 
@@ -311,7 +319,7 @@ def _compute_file_hash(path: Path) -> str:
     return digest
 
 
-def _generate_thumbnail(src_path: Path, dest_path: Path, max_size: int = 280) -> bool:
+def _generate_thumbnail(src_path: Path, dest_path: Path, max_size: int = 320) -> bool:
     """Generate an optimized WebP thumbnail downscaled to max_size using an atomic temp file."""
     temp_dest = None
     try:
@@ -595,6 +603,16 @@ async def save_input_thumbnails_settings(request):
                 status=400,
             )
         current_settings["show_folders"] = show_folders
+        updated = True
+
+    if "thumb_size" in body:
+        thumb_size = body.get("thumb_size")
+        if thumb_size not in ALLOWED_THUMB_SIZES:
+            return web.json_response(
+                {"error": f"thumb_size must be one of {sorted(ALLOWED_THUMB_SIZES)}"},
+                status=400,
+            )
+        current_settings["thumb_size"] = thumb_size
         updated = True
 
     if not updated:
