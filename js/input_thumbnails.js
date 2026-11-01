@@ -46,18 +46,19 @@ function comboValues(widget) {
 }
 
 function filesInFolder(allRels, folder) {
-  const prefix = folder ? `${folder}/` : "";
+  const normFolder = String(folder || "").replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+  const prefix = normFolder ? `${normFolder}/` : "";
   const dirs = new Map();
   const files = [];
   for (const rel of allRels) {
     if (rel.startsWith(".cache/") || rel === ".cache") continue;
     const parsed = fileFromRel(rel);
-    if (folder) {
-      if (parsed.rel === folder || !parsed.rel.startsWith(prefix)) continue;
+    if (normFolder) {
+      if (parsed.rel === normFolder || !parsed.rel.startsWith(prefix)) continue;
       const rest = parsed.rel.slice(prefix.length);
       const cut = rest.indexOf("/");
       if (cut >= 0) {
-        dirs.set(`${folder}/${rest.slice(0, cut)}`, rest.slice(0, cut));
+        dirs.set(`${normFolder}/${rest.slice(0, cut)}`, rest.slice(0, cut));
         continue;
       }
       files.push(parsed);
@@ -178,6 +179,7 @@ function injectStyles() {
       font-size: 13px;
       color: #ddd;
       user-select: none;
+      -webkit-user-select: none;
       padding: 0 4px;
     }
     .itg-toggle-label input[type="checkbox"] {
@@ -231,6 +233,7 @@ function injectStyles() {
       font-size: 42px;
       line-height: 1;
       user-select: none;
+      -webkit-user-select: none;
     }
     .itg-grid.size-large .itg-folder-icon {
       font-size: 84px !important;
@@ -348,6 +351,10 @@ function injectStyles() {
 
 function closeModal() {
   document.querySelectorAll(".itg-overlay").forEach((el) => {
+    if (el._itgKeyHandler) {
+      document.removeEventListener("keydown", el._itgKeyHandler);
+      el._itgKeyHandler = null;
+    }
     if (el._itgObserver) {
       el._itgObserver.disconnect();
       el._itgObserver = null;
@@ -380,22 +387,21 @@ async function loadList(folder, node) {
 
 function sortFileList(files, sortBy) {
   if (sortBy === "name_desc") {
-    files.sort((a, b) => b.name.localeCompare(a.name, undefined, { numeric: true, sensitivity: "base" }));
+    files.sort((a, b) => b.name.normalize("NFC").localeCompare(a.name.normalize("NFC"), undefined, { numeric: true, sensitivity: "base" }));
   } else if (sortBy === "date_desc") {
     files.sort(
       (a, b) =>
         (b.mtime || 0) - (a.mtime || 0) ||
-        a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" })
+        a.name.normalize("NFC").localeCompare(b.name.normalize("NFC"), undefined, { numeric: true, sensitivity: "base" })
     );
   } else if (sortBy === "date_asc") {
     files.sort(
       (a, b) =>
         (a.mtime || 0) - (b.mtime || 0) ||
-        a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" })
+        a.name.normalize("NFC").localeCompare(b.name.normalize("NFC"), undefined, { numeric: true, sensitivity: "base" })
     );
   } else {
-    // Default: name_asc
-    files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
+    files.sort((a, b) => a.name.normalize("NFC").localeCompare(b.name.normalize("NFC"), undefined, { numeric: true, sensitivity: "base" }));
   }
   return files;
 }
@@ -458,6 +464,14 @@ async function openModal(node) {
     </div>
   `;
   document.body.appendChild(overlay);
+
+  const onKeyDown = (e) => {
+    if (e.key === "Escape") {
+      closeModal();
+    }
+  };
+  document.addEventListener("keydown", onKeyDown);
+  overlay._itgKeyHandler = onKeyDown;
 
   const grid = overlay.querySelector(".itg-grid");
   const pathEl = overlay.querySelector(".itg-path");
@@ -639,9 +653,9 @@ async function openModal(node) {
     pathEl.textContent = state.folder ? `input/${state.folder}` : "input/";
     upBtn.disabled = !state.folder;
 
-    // Search across ALL directories and files in this folder
-    const dirs = state.dirs.filter((d) => d.name.toLowerCase().includes(query));
-    let files = state.files.filter((f) => f.name.toLowerCase().includes(query));
+    // Search across ALL directories and files in this folder with NFC normalization
+    const dirs = state.dirs.filter((d) => d.name.normalize("NFC").toLowerCase().includes(query));
+    let files = state.files.filter((f) => f.name.normalize("NFC").toLowerCase().includes(query));
 
     // Sort the entire filtered file set BEFORE pagination slicing
     sortFileList(files, state.sortBy);
@@ -713,12 +727,12 @@ async function openModal(node) {
     let cardToFocus = null;
     const current = imageWidget(node)?.value || "";
     const currentNorm = typeof current === "string"
-      ? current.replace(/\\/g, "/").replace(/^\.?\//, "").trim()
+      ? current.replace(/\\/g, "/").replace(/^\.?\//, "").normalize("NFC").trim()
       : "";
 
     for (const file of pagedFiles) {
       const card = document.createElement("div");
-      const isSelected = file.rel === currentNorm;
+      const isSelected = file.rel?.normalize("NFC") === currentNorm;
       card.className = "itg-card" + (isSelected ? " is-selected" : "");
       card.tabIndex = -1;
 
@@ -730,7 +744,7 @@ async function openModal(node) {
         }
       });
 
-      if (isSelected && focusTargetRel && file.rel === focusTargetRel) {
+      if (isSelected && focusTargetRel && file.rel?.normalize("NFC") === focusTargetRel.normalize("NFC")) {
         cardToFocus = card;
       }
 
@@ -777,8 +791,16 @@ async function openModal(node) {
         delete cardToFocus._loadThumb;
       }
       requestAnimationFrame(() => {
-        cardToFocus.scrollIntoView({ block: "center", inline: "nearest", behavior: "auto" });
-        cardToFocus.focus({ preventScroll: true });
+        try {
+          cardToFocus.scrollIntoView({ block: "center", inline: "nearest", behavior: "auto" });
+        } catch (_) {
+          cardToFocus.scrollIntoView();
+        }
+        try {
+          cardToFocus.focus({ preventScroll: true });
+        } catch (_) {
+          cardToFocus.focus();
+        }
       });
     }
   }
@@ -801,7 +823,7 @@ async function openModal(node) {
 
   btnNext.addEventListener("click", () => {
     const query = sanitizeSearchQuery(searchEl.value);
-    const total = state.files.filter((f) => f.name.toLowerCase().includes(query)).length;
+    const total = state.files.filter((f) => f.name.normalize("NFC").toLowerCase().includes(query)).length;
     const totalPages = Math.max(1, Math.ceil(total / state.pageSize));
     if (state.page < totalPages) {
       state.page++;
@@ -812,7 +834,7 @@ async function openModal(node) {
 
   btnLast.addEventListener("click", () => {
     const query = sanitizeSearchQuery(searchEl.value);
-    const total = state.files.filter((f) => f.name.toLowerCase().includes(query)).length;
+    const total = state.files.filter((f) => f.name.normalize("NFC").toLowerCase().includes(query)).length;
     const totalPages = Math.max(1, Math.ceil(total / state.pageSize));
     if (state.page < totalPages) {
       state.page = totalPages;
@@ -823,7 +845,7 @@ async function openModal(node) {
 
   function jumpToPage() {
     const query = sanitizeSearchQuery(searchEl.value);
-    const total = state.files.filter((f) => f.name.toLowerCase().includes(query)).length;
+    const total = state.files.filter((f) => f.name.normalize("NFC").toLowerCase().includes(query)).length;
     const totalPages = Math.max(1, Math.ceil(total / state.pageSize));
     let target = parseInt(pageInput.value, 10);
     if (isNaN(target) || target < 1) target = 1;
@@ -868,9 +890,9 @@ async function openModal(node) {
     let targetFound = false;
     if (targetRel) {
       const query = sanitizeSearchQuery(searchEl.value);
-      const filteredFiles = state.files.filter((f) => f.name.toLowerCase().includes(query));
+      const filteredFiles = state.files.filter((f) => f.name.normalize("NFC").toLowerCase().includes(query));
       sortFileList(filteredFiles, state.sortBy);
-      const targetIdx = filteredFiles.findIndex((f) => f.rel === targetRel);
+      const targetIdx = filteredFiles.findIndex((f) => f.rel?.normalize("NFC") === targetRel.normalize("NFC"));
       if (targetIdx !== -1) {
         state.page = Math.floor(targetIdx / state.pageSize) + 1;
         targetFound = true;
@@ -903,7 +925,7 @@ async function openModal(node) {
 
   const rawCurrent = imageWidget(node)?.value;
   const current = typeof rawCurrent === "string"
-    ? rawCurrent.replace(/\\/g, "/").replace(/^\.?\//, "").trim()
+    ? rawCurrent.replace(/\\/g, "/").replace(/^\.?\//, "").normalize("NFC").trim()
     : "";
   const targetRel = (current && current !== "(empty)") ? current : "";
   const initial = targetRel && targetRel.includes("/") ? targetRel.split("/").slice(0, -1).join("/") : "";

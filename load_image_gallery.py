@@ -14,6 +14,8 @@ import json
 import os
 import queue
 import threading
+import time
+import unicodedata
 from pathlib import Path
 
 import numpy as np
@@ -35,6 +37,8 @@ IMAGE_EXTS = {
     ".tif",
     ".tiff",
     ".avif",
+    ".jfif",
+    ".apng",
 }
 
 
@@ -46,12 +50,14 @@ def _safe_under_input(rel: str, *, must_exist: bool = False) -> Path:
     """Resolve a relative path and reject anything outside input/."""
     root = _input_root()
     cleaned = (rel or "").replace("\\", "/").strip()
+    if cleaned.startswith("/"):
+        raise ValueError("path traversal is not allowed")
     parts = [p for p in cleaned.split("/") if p and p not in (".",)]
-    if any(p == ".." or ":" in p for p in parts):
+    if any(p == ".." or (len(p) >= 2 and p[1] == ":" and p[0].isalpha()) for p in parts):
         raise ValueError("path traversal is not allowed")
     if parts and parts[0] == ".cache":
         raise ValueError("access to .cache folder is not allowed")
-    path = (root.joinpath(*parts) if parts else root).resolve()
+    path = root.joinpath(*parts) if parts else root
     try:
         path.relative_to(root)
     except ValueError as exc:
@@ -62,12 +68,18 @@ def _safe_under_input(rel: str, *, must_exist: bool = False) -> Path:
 
 
 def _rel_to_input(path: Path) -> str | None:
+    root = _input_root()
     try:
-        rel = path.resolve().relative_to(_input_root())
-        text = str(rel).replace("\\", "/")
+        rel = path.relative_to(root)
+        text = rel.as_posix()
         return "" if text == "." else text
     except ValueError:
-        return None
+        try:
+            rel = path.resolve().relative_to(root.resolve())
+            text = rel.as_posix()
+            return "" if text == "." else text
+        except ValueError:
+            return None
 
 
 def _list_combo_values() -> list[str]:
@@ -79,9 +91,12 @@ def _list_combo_values() -> list[str]:
         if not child.is_file():
             continue
         try:
-            rel_parts = child.resolve().relative_to(root).parts
+            rel_parts = child.relative_to(root).parts
         except ValueError:
-            continue
+            try:
+                rel_parts = child.resolve().relative_to(root.resolve()).parts
+            except ValueError:
+                continue
         if any(part.startswith(".") for part in rel_parts):
             continue
         if child.suffix.lower() not in IMAGE_EXTS:
@@ -152,7 +167,15 @@ def _save_settings(data: dict) -> bool:
             _assert_under_cache(temp_file)
             with open(temp_file, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
-            temp_file.replace(target)
+            for attempt in range(3):
+                try:
+                    temp_file.replace(target)
+                    break
+                except PermissionError:
+                    if attempt < 2:
+                        time.sleep(0.05)
+                    else:
+                        raise
             return True
         except Exception as exc:
             if temp_file and temp_file.is_file():
@@ -235,7 +258,12 @@ def _cache_path(subfolder: str, filename: str, file_hash: str) -> Path:
     sub_parts = clean_sub if clean_sub else ["_root"]
     hash_prefix = file_hash[:2] if len(file_hash) >= 2 else "00"
     short_hash = file_hash[:12] if len(file_hash) >= 12 else file_hash
-    clean_name = Path(filename).name
+    clean_name = Path(filename.replace("\\", "/")).name
+    # Guard against filesystem NAME_MAX (255 bytes on ext4, APFS, NTFS)
+    if len(clean_name.encode("utf-8")) > 180:
+        clean_stem = Path(clean_name).stem[:160]
+        clean_ext = Path(clean_name).suffix[:16]
+        clean_name = f"{clean_stem}{clean_ext}"
 
     path = cache_root.joinpath(*sub_parts, hash_prefix, f"{clean_name}_{short_hash}.webp")
     return _assert_under_cache(path)
@@ -252,7 +280,11 @@ def _clean_old_cache(subfolder: str, filename: str, current_cache_path: Path) ->
         return
     if not sub_dir.is_dir():
         return
-    clean_name = Path(filename).name
+    clean_name = Path(filename.replace("\\", "/")).name
+    if len(clean_name.encode("utf-8")) > 180:
+        clean_stem = Path(clean_name).stem[:160]
+        clean_ext = Path(clean_name).suffix[:16]
+        clean_name = f"{clean_stem}{clean_ext}"
     expected_prefix = f"{clean_name}_"
     # Iterate subdirectories safely without glob pattern injection
     try:
@@ -288,7 +320,11 @@ def _cleanup_stale_tmp_files() -> None:
 def _compute_file_hash(path: Path) -> str:
     """Compute SHA-256 hash of file content, using in-memory (mtime_ns, size) caching."""
     try:
-        path.resolve().relative_to(_input_root())  # Enforce: file must be under input/
+        root = _input_root()
+        try:
+            path.relative_to(root)
+        except ValueError:
+            path.resolve().relative_to(root.resolve())
         stat = path.stat()
     except (OSError, ValueError):
         return ""
@@ -324,14 +360,19 @@ def _generate_thumbnail(src_path: Path, dest_path: Path, max_size: int = 320) ->
     temp_dest = None
     try:
         root = _input_root()
-        # Strict boundary assertions: source must be under input/, destination strictly under .cache
-        src_path.resolve().relative_to(root)
+        try:
+            src_path.relative_to(root)
+        except ValueError:
+            src_path.resolve().relative_to(root.resolve())
         _assert_under_cache(dest_path)
 
         # Directory creation strictly inside .cache
         _assert_under_cache(dest_path.parent).mkdir(parents=True, exist_ok=True)
         img = _open_image(src_path)
-        img = ImageOps.exif_transpose(img)
+        try:
+            img = ImageOps.exif_transpose(img)
+        except Exception:
+            pass
 
         if hasattr(img, "is_animated") and img.is_animated:
             img.seek(0)
@@ -347,7 +388,15 @@ def _generate_thumbnail(src_path: Path, dest_path: Path, max_size: int = 320) ->
         temp_dest = dest_path.with_name(f".{dest_path.name}.tmp.{os.getpid()}.{threading.get_ident()}")
         _assert_under_cache(temp_dest)
         img.save(temp_dest, format="WEBP", quality=85, method=4)
-        temp_dest.replace(dest_path)
+        for attempt in range(3):
+            try:
+                temp_dest.replace(dest_path)
+                break
+            except PermissionError:
+                if attempt < 2:
+                    time.sleep(0.05)
+                else:
+                    raise
         return True
     except Exception as exc:
         if temp_dest and temp_dest.is_file():
@@ -495,10 +544,14 @@ async def list_input_folder(request):
         return web.json_response({"error": str(exc)}, status=500)
 
     for child in sorted(children, key=lambda p: p.name.lower()):
-        if child.name.startswith("."):
+        name_nfc = unicodedata.normalize("NFC", child.name)
+        if name_nfc.startswith("."):
+            continue
+        rel = _rel_to_input(child)
+        if rel is None:
             continue
         if child.is_dir():
-            dirs.append({"name": child.name, "rel": _rel_to_input(child)})
+            dirs.append({"name": name_nfc, "rel": rel})
             continue
         if child.suffix.lower() not in IMAGE_EXTS:
             continue
@@ -506,7 +559,6 @@ async def list_input_folder(request):
             stat = child.stat()
         except OSError:
             continue
-        rel = _rel_to_input(child)
         parent = _rel_to_input(child.parent)
 
         key = str(child.resolve())
@@ -515,7 +567,7 @@ async def list_input_folder(request):
 
         files.append(
             {
-                "name": child.name,
+                "name": name_nfc,
                 "rel": rel,
                 "subfolder": parent,
                 "mtime": int(stat.st_mtime),
@@ -657,7 +709,10 @@ class LoadImageGallery:
         output_masks = []
 
         for frame in ImageSequence.Iterator(img):
-            frame = ImageOps.exif_transpose(frame)
+            try:
+                frame = ImageOps.exif_transpose(frame)
+            except Exception:
+                pass
             if frame.mode == "I":
                 frame = frame.point(lambda i: i * (1 / 255))
             rgb = frame.convert("RGB")

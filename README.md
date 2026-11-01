@@ -27,7 +27,7 @@ A small ComfyUI custom node that shows **thumbnails while you browse** `ComfyUI/
 1. Add node: **image → Load Image (Gallery)**
 2. Click **Browse thumbnails** to open the picker. If an image is currently selected, the gallery automatically opens its folder, jumps to the correct page, and centers/focuses the thumbnail.
 3. Click a folder card to enter it, **↑** to go up.
-4. Click a thumbnail to select it (or press `Enter`/`Space` when focused).
+4. Click a thumbnail to select it (or press `Enter`/`Space` when focused). Press `Escape` or click outside to close.
 5. Wire `image` into the rest of the workflow as usual.
 
 The dropdown and upload button still work. The grid is just the visual picker.
@@ -41,6 +41,18 @@ ComfyUI-InputThumbnails/
   js/input_thumbnails.js  # thumbnail grid UI
   README.md
 ```
+
+## Cross-Platform Compatibility
+
+Engineered for seamless operation across all operating systems supported by ComfyUI:
+
+- **Windows, Linux & macOS**: Fully tested across Windows 10/11, Linux (ext4/btrfs/xfs), and macOS (Apple Silicon & Intel APFS).
+- **Symlink Friendly**: Preserves user-created symlinks inside `ComfyUI/input/` pointing to external datasets or separate storage drives.
+- **Unicode Resilient**: Automatically normalizes decomposed Unicode (macOS NFD) to precomposed Unicode (Linux/Windows NFC) for reliable international search, sorting, and image matching.
+- **Filename Colon Support**: Allows valid timestamps in filenames (e.g., `screenshot_18:30:00.png` common on Linux/macOS) while strictly blocking Windows drive letter path traversal (`C:`).
+- **Filesystem `NAME_MAX` Protection**: Automatically manages thumbnail cache filename lengths to stay well within the 255-byte limit on all filesystems.
+- **Windows File Locking Resilience**: Gracefully handles transient file locks during atomic settings updates.
+- **Expanded Format Support**: Supports all standard ComfyUI formats: `.png`, `.jpg`, `.jpeg`, `.webp`, `.bmp`, `.gif`, `.tif`, `.tiff`, `.avif`, `.jfif`, and `.apng`.
 
 ## Thumbnail Cache (`.cache/thumb`)
 
