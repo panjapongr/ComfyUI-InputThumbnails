@@ -260,7 +260,13 @@ function injectStyles() {
       min-height: calc(var(--thumb-size, 140px) + 32px);
     }
     .itg-card:hover { border-color: #777; }
-    .itg-card.is-selected { border-color: #6ea8fe; }
+    .itg-card.is-selected {
+      border-color: #6ea8fe;
+      box-shadow: 0 0 0 2px rgba(110, 168, 254, 0.4);
+    }
+    .itg-card:focus {
+      outline: none;
+    }
     .itg-name { padding: 6px 8px 8px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .itg-empty { grid-column: 1 / -1; text-align: center; color: #aaa; padding: 40px 10px; }
     .itg-foot {
@@ -370,6 +376,28 @@ async function loadList(folder, node) {
   } catch (_) {}
   const listed = filesInFolder(fromCombo, folder || "");
   return { folder: folder || "", dirs: listed.dirs, files: listed.files };
+}
+
+function sortFileList(files, sortBy) {
+  if (sortBy === "name_desc") {
+    files.sort((a, b) => b.name.localeCompare(a.name, undefined, { numeric: true, sensitivity: "base" }));
+  } else if (sortBy === "date_desc") {
+    files.sort(
+      (a, b) =>
+        (b.mtime || 0) - (a.mtime || 0) ||
+        a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" })
+    );
+  } else if (sortBy === "date_asc") {
+    files.sort(
+      (a, b) =>
+        (a.mtime || 0) - (b.mtime || 0) ||
+        a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" })
+    );
+  } else {
+    // Default: name_asc
+    files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
+  }
+  return files;
 }
 
 async function openModal(node) {
@@ -482,11 +510,11 @@ async function openModal(node) {
       .toLowerCase();
   }
 
-  api.fetchApi("/input_thumbs/settings")
-    .then((res) => (res.ok ? res.json() : null))
-    .then((data) => {
+  try {
+    const res = await api.fetchApi("/input_thumbs/settings");
+    if (res.ok) {
+      const data = await res.json();
       if (data) {
-        let needRender = false;
         if (data.fit_style) {
           fitSelect.value = data.fit_style;
           applyFitStyle(data.fit_style);
@@ -499,22 +527,18 @@ async function openModal(node) {
         if (data.page_size && [60, 120, 240, 300, 600].includes(Number(data.page_size))) {
           state.pageSize = Number(data.page_size);
           pageSizeSelect.value = String(state.pageSize);
-          needRender = true;
         }
         if (data.sort_by && ["name_asc", "name_desc", "date_desc", "date_asc"].includes(data.sort_by)) {
           state.sortBy = data.sort_by;
           sortSelect.value = data.sort_by;
-          needRender = true;
         }
         if (typeof data.show_folders === "boolean") {
           state.showFolders = data.show_folders;
           foldersCheckbox.checked = data.show_folders;
-          needRender = true;
         }
-        if (needRender) render();
       }
-    })
-    .catch(() => {});
+    }
+  } catch (_) {}
 
   fitSelect.addEventListener("change", () => {
     const style = fitSelect.value;
@@ -609,7 +633,7 @@ async function openModal(node) {
     }
   }
 
-  function render() {
+  function render(focusTargetRel = "") {
     initObserver();
     const query = sanitizeSearchQuery(searchEl.value);
     pathEl.textContent = state.folder ? `input/${state.folder}` : "input/";
@@ -620,24 +644,7 @@ async function openModal(node) {
     let files = state.files.filter((f) => f.name.toLowerCase().includes(query));
 
     // Sort the entire filtered file set BEFORE pagination slicing
-    if (state.sortBy === "name_desc") {
-      files.sort((a, b) => b.name.localeCompare(a.name, undefined, { numeric: true, sensitivity: "base" }));
-    } else if (state.sortBy === "date_desc") {
-      files.sort(
-        (a, b) =>
-          (b.mtime || 0) - (a.mtime || 0) ||
-          a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" })
-      );
-    } else if (state.sortBy === "date_asc") {
-      files.sort(
-        (a, b) =>
-          (a.mtime || 0) - (b.mtime || 0) ||
-          a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" })
-      );
-    } else {
-      // Default: name_asc
-      files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
-    }
+    sortFileList(files, state.sortBy);
 
     // Revoke previous blob URLs to prevent memory bloat
     grid.querySelectorAll("img").forEach((img) => {
@@ -703,10 +710,30 @@ async function openModal(node) {
       }
     }
 
+    let cardToFocus = null;
     const current = imageWidget(node)?.value || "";
+    const currentNorm = typeof current === "string"
+      ? current.replace(/\\/g, "/").replace(/^\.?\//, "").trim()
+      : "";
+
     for (const file of pagedFiles) {
       const card = document.createElement("div");
-      card.className = "itg-card" + (file.rel === current ? " is-selected" : "");
+      const isSelected = file.rel === currentNorm;
+      card.className = "itg-card" + (isSelected ? " is-selected" : "");
+      card.tabIndex = -1;
+
+      card.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          setImageWidget(node, file.rel);
+          closeModal();
+        }
+      });
+
+      if (isSelected && focusTargetRel && file.rel === focusTargetRel) {
+        cardToFocus = card;
+      }
+
       const box = thumbBox();
       box.textContent = "…";
       box.style.color = "#666";
@@ -742,6 +769,17 @@ async function openModal(node) {
       } else {
         loadThumb();
       }
+    }
+
+    if (cardToFocus) {
+      if (typeof cardToFocus._loadThumb === "function") {
+        cardToFocus._loadThumb();
+        delete cardToFocus._loadThumb;
+      }
+      requestAnimationFrame(() => {
+        cardToFocus.scrollIntoView({ block: "center", inline: "nearest", behavior: "auto" });
+        cardToFocus.focus({ preventScroll: true });
+      });
     }
   }
 
@@ -803,14 +841,47 @@ async function openModal(node) {
     }
   });
 
-  async function refresh(folder) {
+  async function refresh(folder, targetRel = "") {
     grid.innerHTML = `<div class="itg-empty">Loading…</div>`;
-    const data = await loadList(folder, node);
-    state.folder = data.folder;
-    state.dirs = data.dirs;
-    state.files = data.files;
-    state.page = 1;
-    render();
+    let data;
+    try {
+      data = await loadList(folder, node);
+    } catch (_) {
+      data = { folder: "", dirs: [], files: [] };
+    }
+
+    // Fallback to root folder if the requested subfolder returned no items or failed
+    if (folder && (!data.files?.length && !data.dirs?.length)) {
+      try {
+        const rootData = await loadList("", node);
+        if (rootData.files?.length || rootData.dirs?.length) {
+          data = rootData;
+          folder = "";
+        }
+      } catch (_) {}
+    }
+
+    state.folder = data.folder || folder || "";
+    state.dirs = data.dirs || [];
+    state.files = data.files || [];
+
+    let targetFound = false;
+    if (targetRel) {
+      const query = sanitizeSearchQuery(searchEl.value);
+      const filteredFiles = state.files.filter((f) => f.name.toLowerCase().includes(query));
+      sortFileList(filteredFiles, state.sortBy);
+      const targetIdx = filteredFiles.findIndex((f) => f.rel === targetRel);
+      if (targetIdx !== -1) {
+        state.page = Math.floor(targetIdx / state.pageSize) + 1;
+        targetFound = true;
+      } else {
+        state.page = 1;
+      }
+    } else {
+      state.page = 1;
+    }
+
+    render(targetFound ? targetRel : "");
   }
 
   overlay.addEventListener("click", (e) => {
@@ -830,9 +901,13 @@ async function openModal(node) {
     render();
   });
 
-  const current = imageWidget(node)?.value || "";
-  const initial = current.includes("/") ? current.split("/").slice(0, -1).join("/") : "";
-  await refresh(initial);
+  const rawCurrent = imageWidget(node)?.value;
+  const current = typeof rawCurrent === "string"
+    ? rawCurrent.replace(/\\/g, "/").replace(/^\.?\//, "").trim()
+    : "";
+  const targetRel = (current && current !== "(empty)") ? current : "";
+  const initial = targetRel && targetRel.includes("/") ? targetRel.split("/").slice(0, -1).join("/") : "";
+  await refresh(initial, targetRel);
 }
 
 function attachButton(node) {
