@@ -42,17 +42,18 @@ ComfyUI-InputThumbnails/
   README.md
 ```
 
-## Cross-Platform Compatibility
+## Cross-Platform Compatibility & Security
 
-Engineered for seamless operation across all operating systems supported by ComfyUI:
+Engineered for seamless operation and robust security across all operating systems supported by ComfyUI:
 
 - **Windows, Linux & macOS**: Fully tested across Windows 10/11, Linux (ext4/btrfs/xfs), and macOS (Apple Silicon & Intel APFS).
-- **Symlink Friendly**: Preserves user-created symlinks inside `ComfyUI/input/` pointing to external datasets or separate storage drives.
+- **Symlink Friendly & Loop Immune**: Preserves user-created symlinks inside `ComfyUI/input/` pointing to external datasets or separate storage drives, while actively detecting and pruning circular symlinks to prevent infinite recursion.
+- **Path Traversal & Device Name Defense**: Enforces strict lexical containment under `input/`, blocks null-byte injections, rejects parent-directory traversal (`..`), denies Windows DOS device names (`CON`, `PRN`, `AUX`, `NUL`, `COM1-9`, `LPT1-9`), and prevents NTFS Alternate Data Streams (`:stream`).
+- **File Leak & MIME Protection**: Confines file streaming strictly to supported image extensions (`.png`, `.jpg`, `.jpeg`, `.webp`, `.bmp`, `.gif`, `.tif`, `.tiff`, `.avif`, `.jfif`, `.apng`), rejecting any non-image files, and delivers all responses with `X-Content-Type-Options: nosniff`.
 - **Unicode Resilient**: Automatically normalizes decomposed Unicode (macOS NFD) to precomposed Unicode (Linux/Windows NFC) for reliable international search, sorting, and image matching.
-- **Filename Colon Support**: Allows valid timestamps in filenames (e.g., `screenshot_18:30:00.png` common on Linux/macOS) while strictly blocking Windows drive letter path traversal (`C:`).
+- **Filename Colon Support**: Safely supports filenames containing colons on Linux and macOS (such as timestamped files) while protecting cache filenames across platforms.
 - **Filesystem `NAME_MAX` Protection**: Automatically manages thumbnail cache filename lengths to stay well within the 255-byte limit on all filesystems.
-- **Windows File Locking Resilience**: Gracefully handles transient file locks during atomic settings updates.
-- **Expanded Format Support**: Supports all standard ComfyUI formats: `.png`, `.jpg`, `.jpeg`, `.webp`, `.bmp`, `.gif`, `.tif`, `.tiff`, `.avif`, `.jfif`, and `.apng`.
+- **Windows File Locking Resilience**: Gracefully retries file replacements during atomic settings and thumbnail updates to handle Windows file locks.
 
 ## Thumbnail Cache (`.cache/thumb`)
 
