@@ -25,9 +25,10 @@ A small ComfyUI custom node that shows **thumbnails while you browse** `ComfyUI/
 ## Use
 
 1. Add node: **image → Load Image (Gallery)**
-2. Click a folder card to enter it, **↑** to go up.
-3. Click a thumbnail to select it.
-4. Wire `image` into the rest of the workflow as usual.
+2. Click **Browse thumbnails** to open the picker. If an image is currently selected, the gallery automatically opens its folder, jumps to the correct page, and centers/focuses the thumbnail.
+3. Click a folder card to enter it, **↑** to go up.
+4. Click a thumbnail to select it (or press `Enter`/`Space` when focused).
+5. Wire `image` into the rest of the workflow as usual.
 
 The dropdown and upload button still work. The grid is just the visual picker.
 
@@ -77,6 +78,7 @@ All display style and thumbnail size choices are persisted on the server in `Com
 To smoothly support folders containing thousands of images without browser DOM lag or memory bloat:
 
 - **Pagination Controls**: Navigate large directories using **« First**, **‹ Previous**, **Page [X] of Y**, **Next ›**, and **Last »**.
+- **Auto-Focus Selected Image**: Opening the gallery automatically jumps directly to the page containing your currently selected image, centers it in view, and highlights it. If no image is selected or the file cannot be found, the browser opens gracefully on Page 1 without error.
 - **Adjustable Page Size**: Choose between **60**, **120**, **240**, **300**, or **600** items per page via the footer dropdown (default: 60).
 - **Global Search**: The search box searches across **all** images in the current folder, then paginates the matching results.
 - **Index Out-of-Bounds Protection**: Automatic index clamping and input sanitization prevent invalid page requests.
